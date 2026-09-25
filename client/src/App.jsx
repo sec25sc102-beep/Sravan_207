@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
-const companyList = [
+const API_BASE = ' https://sravan-207.onrender.com'
+
+const defaultCompanyList = [
   'TCS',
   'Infosys',
   'Wipro',
@@ -12,36 +14,6 @@ const companyList = [
   'Amazon',
   'Microsoft',
   'Google',
-]
-
-const starterStudents = [
-  {
-    id: 1,
-    name: 'Aarav Nair',
-    studentId: '21CS101',
-    department: 'Computer Science',
-    bloodGroup: 'O+',
-    standingArrear: 0,
-    companies: ['TCS', 'Infosys', 'Wipro', 'Accenture'],
-  },
-  {
-    id: 2,
-    name: 'Meera Iyer',
-    studentId: '21IT204',
-    department: 'Information Technology',
-    bloodGroup: 'A+',
-    standingArrear: 0,
-    companies: ['Cognizant', 'Capgemini', 'Tech Mahindra', 'Amazon'],
-  },
-  {
-    id: 3,
-    name: 'Rohit Kumar',
-    studentId: '21EC310',
-    department: 'Electronics',
-    bloodGroup: 'B+',
-    standingArrear: 1,
-    companies: [],
-  },
 ]
 
 const defaultStudent = {
@@ -57,23 +29,45 @@ function App() {
   const [student, setStudent] = useState(defaultStudent)
   const [selectedCompanies, setSelectedCompanies] = useState([])
   const [message, setMessage] = useState('')
-  const [registrations, setRegistrations] = useState(() => {
-    const saved = localStorage.getItem('placement-registrations')
-    return saved ? JSON.parse(saved) : starterStudents
-  })
+  const [companyList, setCompanyList] = useState(defaultCompanyList)
+  const [registrations, setRegistrations] = useState([])
 
   useEffect(() => {
-    localStorage.setItem('placement-registrations', JSON.stringify(registrations))
-  }, [registrations])
+    const loadData = async () => {
+      try {
+        const [companyResponse, studentResponse] = await Promise.all([
+          fetch(`${API_BASE}/api/companies`),
+          fetch(`${API_BASE}/api/students`),
+        ])
+
+        if (!companyResponse.ok || !studentResponse.ok) {
+          throw new Error('Failed to load data from the server.')
+        }
+
+        const companies = await companyResponse.json()
+        const students = await studentResponse.json()
+
+        setCompanyList(companies.length ? companies : defaultCompanyList)
+        setRegistrations(students)
+      } catch (error) {
+        console.error('Error loading placement data:', error)
+        setMessage('Unable to connect to the backend server. Please start the server first.')
+        setCompanyList(defaultCompanyList)
+        setRegistrations([])
+      }
+    }
+
+    loadData()
+  }, [])
 
   const companyCounts = useMemo(() => {
     return companyList.map((company) => ({
       company,
       count: registrations.filter((studentEntry) =>
-        studentEntry.companies.includes(company),
+        Array.isArray(studentEntry.companies) && studentEntry.companies.includes(company),
       ).length,
     }))
-  }, [registrations])
+  }, [companyList, registrations])
 
   const maxCompanyCount = Math.max(...companyCounts.map((entry) => entry.count), 1)
 
@@ -118,23 +112,39 @@ function App() {
     })
   }
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (selectedCompanies.length !== 4) {
       setMessage('Please select exactly 4 companies for registration.')
       return
     }
 
-    const newEntry = {
-      id: Date.now(),
-      ...student,
-      companies: selectedCompanies,
-    }
+    try {
+      const response = await fetch(`${API_BASE}/api/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...student,
+          standingArrear: Number(student.standingArrear) || 0,
+          companies: selectedCompanies,
+        }),
+      })
 
-    setRegistrations((current) => [newEntry, ...current])
-    setMessage('Registration submitted successfully.')
-    setSelectedCompanies([])
-    setStudent(defaultStudent)
-    setView('home')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Registration failed.')
+      }
+
+      setRegistrations((current) => [data.student, ...current])
+      setMessage('Registration submitted successfully.')
+      setSelectedCompanies([])
+      setStudent(defaultStudent)
+      setView('home')
+    } catch (error) {
+      setMessage(error.message || 'Something went wrong while registering.')
+    }
   }
 
   const resetStudentFlow = () => {
@@ -371,13 +381,13 @@ function App() {
               </thead>
               <tbody>
                 {registrations.map((entry) => (
-                  <tr key={entry.id}>
+                  <tr key={entry.id || entry.studentId}>
                     <td>{entry.name}</td>
                     <td>{entry.studentId}</td>
                     <td>{entry.department}</td>
                     <td>{entry.bloodGroup}</td>
                     <td>{entry.standingArrear}</td>
-                    <td>{entry.companies.join(', ') || '—'}</td>
+                    <td>{entry.companies?.join(', ') || '—'}</td>
                   </tr>
                 ))}
               </tbody>
